@@ -1,4 +1,4 @@
-package com.example.nexusremote
+package com.nexusremote.app
 
 import android.Manifest
 import android.app.NotificationChannel
@@ -94,7 +94,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.nexusremote.ui.theme.NexusRemoteTheme
+import androidx.compose.ui.unit.sp
+import com.nexusremote.app.ui.theme.NexusRemoteTheme
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import java.io.OutputStreamWriter
@@ -154,6 +155,20 @@ class MainActivity : ComponentActivity() {
                                     runOnUiThread { onResult(result) }
                                 }
                             },
+                            onPairingRequest = { host, port, pairingToken, onResult ->
+                                status = "Ожидаю подтверждение на ПК"
+                                pairWithServer(host, port, pairingToken) { settings, message ->
+                                    runOnUiThread {
+                                        status = message
+                                        onResult(settings)
+                                    }
+                                }
+                            },
+                            onCheckUpdates = { onResult ->
+                                checkForAndroidUpdates { message ->
+                                    runOnUiThread { onResult(message) }
+                                }
+                            },
                             onRefreshContext = { host, port ->
                                 fetchContext(host, port, savedToken = prefs.getString("token", "").orEmpty()) { context ->
                                     runOnUiThread { pcContext = context }
@@ -168,7 +183,7 @@ class MainActivity : ComponentActivity() {
                                                 status = "Готово: snapshot"
                                             }
                                         } else {
-                                            status = "Нет связи или неверный ключ"
+                                            status = "ПК недоступен. Откройте Nexus Remote PC и отсканируйте QR."
                                         }
                                     }
                                 }
@@ -194,7 +209,7 @@ class MainActivity : ComponentActivity() {
 
     private fun loadConnectionSettings(): ConnectionSettings {
         return ConnectionSettings(
-            host = prefs.getString("host", "192.168.1.").orEmpty(),
+            host = prefs.getString("host", "").orEmpty(),
             port = prefs.getString("port", "8765").orEmpty(),
             token = prefs.getString("token", "").orEmpty()
         )
@@ -206,6 +221,109 @@ class MainActivity : ComponentActivity() {
             .putString("port", settings.port)
             .putString("token", settings.token)
             .apply()
+    }
+
+    private fun checkForAndroidUpdates(onResult: (String) -> Unit) {
+        commandExecutor.execute {
+            try {
+                val url = URL("https://api.github.com/repos/Deenfoool/nexus-remote-PC-APK/releases/latest")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 2500
+                    readTimeout = 4000
+                    setRequestProperty("Accept", "application/vnd.github+json")
+                    setRequestProperty("User-Agent", "NexusRemote-Android")
+                }
+                val responseCode = connection.responseCode
+                if (responseCode == 404) {
+                    connection.disconnect()
+                    onResult("Публичный релиз ещё не опубликован")
+                    return@execute
+                }
+                if (responseCode !in 200..299) {
+                    connection.disconnect()
+                    onResult("Не удалось проверить обновления")
+                    return@execute
+                }
+
+                val responseText = connection.inputStream.bufferedReader().use { it.readText() }
+                connection.disconnect()
+                val root = JSONObject(responseText)
+                val latestTag = root.optString("tag_name").trim().removePrefix("v")
+                val currentTag = BuildConfig.VERSION_NAME.trim().removePrefix("v")
+                val latestParts = latestTag.split('.').mapNotNull { it.toIntOrNull() }
+                val currentParts = currentTag.split('.').mapNotNull { it.toIntOrNull() }
+                val hasUpdate = compareVersionParts(latestParts, currentParts) > 0
+                onResult(
+                    if (hasUpdate) "Доступна версия $latestTag"
+                    else "Установлена актуальная версия $currentTag"
+                )
+            } catch (error: Exception) {
+                onResult("Ошибка обновлений: ${error.message ?: error.javaClass.simpleName}")
+            }
+        }
+    }
+
+    private fun compareVersionParts(left: List<Int>, right: List<Int>): Int {
+        val size = maxOf(left.size, right.size)
+        repeat(size) { index ->
+            val l = left.getOrElse(index) { 0 }
+            val r = right.getOrElse(index) { 0 }
+            if (l != r) return l.compareTo(r)
+        }
+        return 0
+    }
+
+    private fun pairWithServer(
+        host: String,
+        port: String,
+        pairingToken: String,
+        onResult: (ConnectionSettings?, String) -> Unit
+    ) {
+        commandExecutor.execute {
+            try {
+                val url = URL("http://${host.trim()}:${port.trim()}/pair")
+                val body = JSONObject()
+                    .put("pairingToken", pairingToken)
+                    .put("deviceName", "${Build.MANUFACTURER} ${Build.MODEL}".trim())
+                    .toString()
+
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 2500
+                    readTimeout = 30000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                }
+
+                OutputStreamWriter(connection.outputStream).use { it.write(body) }
+                val responseCode = connection.responseCode
+                val responseText = runCatching {
+                    val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
+                    stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                }.getOrDefault("")
+                connection.disconnect()
+
+                if (responseCode !in 200..299) {
+                    onResult(null, "Сопряжение отклонено или QR устарел")
+                    return@execute
+                }
+
+                val device = JSONObject(responseText).optJSONObject("device") ?: JSONObject()
+                val deviceToken = device.optString("token")
+                if (deviceToken.isBlank()) {
+                    onResult(null, "ПК не выдал device token")
+                    return@execute
+                }
+
+                onResult(
+                    ConnectionSettings(host = host, port = port, token = deviceToken),
+                    "Готово: устройство сопряжено"
+                )
+            } catch (error: Exception) {
+                onResult(null, "Ошибка сопряжения: ${error.message ?: error.javaClass.simpleName}")
+            }
+        }
     }
 
     private fun discoverServer(onResult: (ConnectionSettings?) -> Unit) {
@@ -274,7 +392,7 @@ class MainActivity : ComponentActivity() {
         val notification = NotificationCompat.Builder(this, "nexus_connection")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Nexus Remote")
-            .setContentText("ПК недоступен или ключ неверный")
+            .setContentText("ПК недоступен. Откройте Nexus Remote PC и проверьте Wi-Fi.")
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()
@@ -293,6 +411,7 @@ class MainActivity : ComponentActivity() {
             try {
                 val url = URL("http://${host.trim()}:${port.trim()}/command")
                 val body = JSONObject()
+                    .put("deviceToken", token)
                     .put("token", token)
                     .put("type", type)
                     .put("payload", payload)
@@ -304,7 +423,7 @@ class MainActivity : ComponentActivity() {
                     readTimeout = 1200
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json")
-                    setRequestProperty("X-Nexus-Key", token)
+                    setRequestProperty("X-Nexus-Device-Token", token)
                 }
 
                 OutputStreamWriter(connection.outputStream).use { it.write(body) }
@@ -339,7 +458,7 @@ class MainActivity : ComponentActivity() {
                     requestMethod = "GET"
                     connectTimeout = 900
                     readTimeout = 900
-                    setRequestProperty("X-Nexus-Key", savedToken)
+                    setRequestProperty("X-Nexus-Device-Token", savedToken)
                 }
                 val responseText = connection.inputStream.bufferedReader().use { it.readText() }
                 val context = JSONObject(responseText).optJSONObject("context") ?: JSONObject()
@@ -369,7 +488,7 @@ class MainActivity : ComponentActivity() {
                     requestMethod = "GET"
                     connectTimeout = 2500
                     readTimeout = 8500
-                    setRequestProperty("X-Nexus-Key", savedToken)
+                    setRequestProperty("X-Nexus-Device-Token", savedToken)
                 }
                 val responseText = connection.inputStream.bufferedReader().use { it.readText() }
                 val snapshot = JSONObject(responseText).optJSONObject("snapshot") ?: JSONObject()
@@ -399,10 +518,10 @@ class MainActivity : ComponentActivity() {
             hostname = system.optString("hostname", "Ждём данные"),
             osName = system.optString("os", "Windows"),
             uptime = system.optString("uptime", "Ждём"),
-            processCount = system.optInt("process_count", 0),
-            powerStatus = system.optString("power_status", "Нормально"),
+            processCount = system.optInt("process_count", system.optInt("processes", 0)),
+            powerStatus = system.optString("power_status", system.optString("power", "Нормально")),
             lastAction = system.optString("last_action", "Нет"),
-            systemVolume = system.optInt("volume", 70),
+            systemVolume = if (system.isNull("volume")) 70 else system.optInt("volume", 70),
             screenBrightness = if (system.isNull("brightness")) null else system.optInt("brightness"),
             cpuLoad = cpu.optInt("load", 0),
             cpuTemp = if (cpu.isNull("temperature")) null else cpu.optInt("temperature"),
@@ -414,8 +533,9 @@ class MainActivity : ComponentActivity() {
             diskPercent = disk.optInt("percent", 0),
             diskUsedGb = disk.optInt("used_gb", 0),
             diskTotalGb = disk.optInt("total_gb", 0),
+            storageActivity = if (storage.isNull("activity")) null else storage.optInt("activity"),
             storageTemp = if (storage.isNull("temperature")) null else storage.optInt("temperature"),
-            fanRpm = fans.optInt("rpm", 0),
+            fanRpm = if (fans.isNull("rpm")) null else fans.optInt("rpm"),
             networkTotalMbps = network.optInt("total_mbps", 0),
             networkDownMbps = network.optInt("down_mbps", 0),
             networkUpMbps = network.optInt("up_mbps", 0),
@@ -442,9 +562,15 @@ data class PcContext(
 )
 
 data class ConnectionSettings(
-    val host: String = "192.168.1.",
+    val host: String = "",
     val port: String = "8765",
     val token: String = ""
+)
+
+data class PairingQr(
+    val host: String,
+    val port: String,
+    val pairingToken: String
 )
 
 data class ProgramStatus(
@@ -473,8 +599,9 @@ data class PcSnapshot(
     val diskPercent: Int = 0,
     val diskUsedGb: Int = 0,
     val diskTotalGb: Int = 0,
+    val storageActivity: Int? = null,
     val storageTemp: Int? = null,
-    val fanRpm: Int = 0,
+    val fanRpm: Int? = null,
     val networkTotalMbps: Int = 0,
     val networkDownMbps: Int = 0,
     val networkUpMbps: Int = 0,
@@ -567,15 +694,15 @@ private fun SplashScreen() {
     }
 }
 
-private fun parsePairingQr(contents: String?): ConnectionSettings? {
+private fun parsePairingQr(contents: String?): PairingQr? {
     if (contents.isNullOrBlank()) return null
     return runCatching {
         val json = JSONObject(contents)
         if (json.optString("app") != "nexus-remote") return null
-        ConnectionSettings(
+        PairingQr(
             host = json.optString("host"),
             port = json.optInt("port", 8765).toString(),
-            token = json.optString("token")
+            pairingToken = json.optString("pairingToken", json.optString("token"))
         )
     }.getOrNull()
 }
@@ -589,6 +716,8 @@ fun RemoteApp(
     onSettingsChange: (ConnectionSettings) -> Unit = {},
     onServerUnavailable: () -> Unit = {},
     onDiscoverServer: ((ConnectionSettings?) -> Unit) -> Unit = { callback -> callback(null) },
+    onPairingRequest: (host: String, port: String, pairingToken: String, onResult: (ConnectionSettings?) -> Unit) -> Unit = { _, _, _, callback -> callback(null) },
+    onCheckUpdates: ((String) -> Unit) -> Unit = { callback -> callback("Проверка обновлений недоступна") },
     onRefreshContext: (host: String, port: String) -> Unit,
     onRefreshSnapshot: (host: String, port: String) -> Unit,
     onCommand: (host: String, port: String, token: String, type: String, payload: JSONObject) -> Unit
@@ -598,12 +727,21 @@ fun RemoteApp(
     var token by remember { mutableStateOf(initialSettings.token) }
     var tab by remember { mutableStateOf(MainTab.Monitor) }
     var showConnection by remember { mutableStateOf(false) }
+    var showOnboarding by remember { mutableStateOf(initialSettings.token.isBlank()) }
     var unavailableNotified by remember { mutableStateOf(false) }
+    var updateStatus by remember { mutableStateOf("Проверка обновлений ещё не запускалась") }
+    val versionText = remember { "Версия ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})" }
     val qrScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
-        parsePairingQr(result.contents)?.let { settings ->
-            host = settings.host
-            port = settings.port
-            token = settings.token
+        parsePairingQr(result.contents)?.let { qr ->
+            host = qr.host
+            port = qr.port
+            onPairingRequest(qr.host, qr.port, qr.pairingToken) { settings ->
+                if (settings != null) {
+                    host = settings.host
+                    port = settings.port
+                    token = settings.token
+                }
+            }
         }
     }
 
@@ -612,8 +750,10 @@ fun RemoteApp(
         status.startsWith("Яркость")
 
     fun send(type: String, payload: JSONObject = JSONObject()) {
-        if (host.isNotBlank() && port.isNotBlank()) {
+        if (host.isNotBlank() && port.isNotBlank() && token.isNotBlank()) {
             onCommand(host, port, token, type, payload)
+        } else {
+            showConnection = true
         }
     }
 
@@ -665,6 +805,28 @@ fun RemoteApp(
             )
 
             ContextHint(context = pcContext, tab = tab, onOpen = { tab = it })
+
+            if (showOnboarding && !connected) {
+                OnboardingCard(
+                    onFindPc = {
+                        onDiscoverServer { discovered ->
+                            if (discovered != null) {
+                                host = discovered.host
+                                port = discovered.port
+                            }
+                        }
+                    },
+                    onScanQr = {
+                        qrScanner.launch(
+                            ScanOptions()
+                                .setPrompt("Сканируйте QR в окне Nexus Remote PC")
+                                .setBeepEnabled(false)
+                                .setOrientationLocked(false)
+                        )
+                    },
+                    onOpenSettings = { showConnection = true }
+                )
+            }
 
             AnimatedContent(
                 targetState = tab,
@@ -722,8 +884,69 @@ fun RemoteApp(
                 send("programs_refresh")
                 onRefreshSnapshot(host, port)
             },
-            onDismiss = { if (connected) showConnection = false }
+            versionText = versionText,
+            updateStatus = updateStatus,
+            onCheckUpdates = {
+                onCheckUpdates { message -> updateStatus = message }
+            },
+            onDismiss = {
+                if (connected) {
+                    showOnboarding = false
+                    showConnection = false
+                }
+            }
         )
+    }
+}
+
+@Composable
+private fun OnboardingCard(
+    onFindPc: () -> Unit,
+    onScanQr: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    GlowCard {
+        Text("Первое подключение", color = TextMain, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        OnboardingStep("1", "Установите и откройте Nexus Remote PC на компьютере.")
+        OnboardingStep("2", "Нажмите “Найти ПК”, если телефон и ПК в одной Wi-Fi сети.")
+        OnboardingStep("3", "Сканируйте QR в окне PC-приложения и подтвердите доступ на ПК.")
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = onFindPc,
+                modifier = Modifier.weight(1f).height(46.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF162235))
+            ) {
+                Text("Найти ПК", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+            }
+            Button(
+                onClick = onScanQr,
+                modifier = Modifier.weight(1f).height(46.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Cyan)
+            ) {
+                Text("Сканировать QR", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+            }
+        }
+        TextButton(onClick = onOpenSettings, modifier = Modifier.align(Alignment.End)) {
+            Text("Настройки вручную", color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun OnboardingStep(number: String, text: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF18304A)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(number, color = Cyan, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+        }
+        Text(text, color = TextMuted, modifier = Modifier.weight(1f), lineHeight = 20.sp)
     }
 }
 
@@ -782,7 +1005,8 @@ private fun MonitorScreen(snapshot: PcSnapshot) {
     var gpuHistory by remember { mutableStateOf(seedHistory(snapshot.gpuLoad ?: 0)) }
     var ramHistory by remember { mutableStateOf(seedHistory(snapshot.ramPercent)) }
     var diskHistory by remember { mutableStateOf(seedHistory(snapshot.diskPercent)) }
-    var fanHistory by remember { mutableStateOf(seedHistory(snapshot.fanRpm / 30)) }
+    var storageHistory by remember { mutableStateOf(seedHistory(snapshot.storageActivity ?: 0)) }
+    var fanHistory by remember { mutableStateOf(seedHistory((snapshot.fanRpm ?: 0) / 30)) }
     var networkHistory by remember { mutableStateOf(seedHistory(snapshot.networkTotalMbps)) }
 
     LaunchedEffect(snapshot.cpuLoad) {
@@ -797,38 +1021,49 @@ private fun MonitorScreen(snapshot: PcSnapshot) {
     LaunchedEffect(snapshot.diskPercent) {
         diskHistory = appendHistory(diskHistory, snapshot.diskPercent)
     }
+    LaunchedEffect(snapshot.storageActivity) {
+        snapshot.storageActivity?.let { storageHistory = appendHistory(storageHistory, it) }
+    }
     LaunchedEffect(snapshot.fanRpm) {
-        fanHistory = appendHistory(fanHistory, snapshot.fanRpm / 30)
+        snapshot.fanRpm?.let { fanHistory = appendHistory(fanHistory, it / 30) }
     }
     LaunchedEffect(snapshot.networkTotalMbps) {
         networkHistory = appendHistory(networkHistory, snapshot.networkTotalMbps)
     }
 
-    val fanText = if (snapshot.fanRpm > 0) "${snapshot.fanRpm} RPM" else "Нет данных"
     val ramUsed = if (snapshot.ramUsedGb > 0) formatGb(snapshot.ramUsedGb) else "Ждём"
     val ramTotal = if (snapshot.ramTotalGb > 0) "/ ${formatGb(snapshot.ramTotalGb)} GB" else "данные"
     val diskDetail = if (snapshot.diskTotalGb > 0) "${snapshot.diskUsedGb} GB / ${snapshot.diskTotalGb} GB" else "Ждём данные"
     val gpuLoad = snapshot.gpuLoad
+    val storageActivity = snapshot.storageActivity
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             MetricCard(NexusIcon.Chip, "CPU", snapshot.cpuLoad, Cyan, Modifier.weight(1f), history = cpuHistory)
-            MetricCard(NexusIcon.Chip, "GPU", gpuLoad, Teal, Modifier.weight(1f), history = gpuHistory)
+            if (gpuLoad != null) {
+                MetricCard(NexusIcon.Chip, "GPU", gpuLoad, Teal, Modifier.weight(1f), history = gpuHistory)
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             UsageCard(NexusIcon.Grid, "RAM", ramUsed, ramTotal, "${snapshot.ramPercent}%", Modifier.weight(1f), progress = snapshot.ramPercent / 100f)
             UsageCard(NexusIcon.Storage, "Диск C:", snapshot.diskPercent.toString(), "%", diskDetail, Modifier.weight(1f), progress = snapshot.diskPercent / 100f)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SparkCard(NexusIcon.Storage, "Диски", "Активность", "${snapshot.diskPercent}%", Teal, Modifier.weight(1f), history = diskHistory)
-            if (snapshot.storageTemp != null) {
-                RingOnlyCard(NexusIcon.Storage, "SSD / HDD", snapshot.storageTemp.toString(), "°C", Modifier.weight(1f))
-            } else {
-                SparkCard(NexusIcon.Storage, "SSD / HDD", "Активность", "${snapshot.diskPercent}%", Teal, Modifier.weight(1f), history = diskHistory)
+        if (storageActivity != null || snapshot.storageTemp != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (storageActivity != null) {
+                    SparkCard(NexusIcon.Storage, "Диски", "Активность", "$storageActivity%", Teal, Modifier.weight(1f), history = storageHistory)
+                }
+                if (snapshot.storageTemp != null) {
+                    RingOnlyCard(NexusIcon.Storage, "SSD / HDD", snapshot.storageTemp.toString(), "°C", Modifier.weight(1f))
+                } else if (storageActivity != null) {
+                    SparkCard(NexusIcon.Storage, "SSD / HDD", "Активность", "$storageActivity%", Teal, Modifier.weight(1f), history = storageHistory)
+                }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SparkCard(NexusIcon.Wave, "Вентиляторы", "Скорость", fanText, Cyan, Modifier.weight(1f), history = fanHistory)
+            if (snapshot.fanRpm != null && snapshot.fanRpm > 0) {
+                SparkCard(NexusIcon.Wave, "Вентиляторы", "Скорость", "${snapshot.fanRpm} RPM", Cyan, Modifier.weight(1f), history = fanHistory)
+            }
             NetworkCard(snapshot, Modifier.weight(1f), history = networkHistory)
         }
     }
@@ -837,12 +1072,14 @@ private fun MonitorScreen(snapshot: PcSnapshot) {
 @Composable
 private fun PlayerScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -> Unit) {
     var volume by remember { mutableFloatStateOf(snapshot.systemVolume.toFloat()) }
-    var progress by remember { mutableFloatStateOf(43f) }
     val mediaTitle = snapshot.mediaTitle
         .takeIf { it.isNotBlank() }
         ?.replace(" - VLC media player", "")
         ?.replace(" - MPC-HC", "")
-        ?: "Медиа на ПК"
+        ?: "Медиа-контроллер"
+    val mediaSubtitle = snapshot.mediaProcess
+        .takeIf { it.isNotBlank() }
+        ?: "Системные media keys"
 
     LaunchedEffect(snapshot.systemVolume) {
         volume = snapshot.systemVolume.toFloat()
@@ -850,13 +1087,18 @@ private fun PlayerScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
 
     GlowCard {
         Text(mediaTitle, color = TextMain, style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(snapshot.mediaProcess.ifBlank { "Системные media keys" }, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-        Poster()
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("01:15:42", color = TextMuted)
-            Text("02:49:04", color = TextMuted)
+        Text(mediaSubtitle, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(118.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(Brush.linearGradient(listOf(Color(0xFF0E1B2B), Color(0xFF102A3A))))
+                .border(1.dp, CardStroke, RoundedCornerShape(18.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(NexusIcon.Play, contentDescription = null, tint = Cyan, modifier = Modifier.size(46.dp))
         }
-        SliderLine(progress, onValueChange = { progress = it }, onDone = {})
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             RoundControl(NexusIcon.Rewind, "-5 сек") { shortcut(onCommand, listOf("Left")) }
             PlayButton { onCommand("media_play_pause", JSONObject()) }
@@ -982,11 +1224,17 @@ private fun SystemScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SystemActionTile(NexusIcon.Moon, "Сон", Modifier.weight(1f)) { onCommand("power_sleep", JSONObject()) }
-            SystemActionTile(NexusIcon.Lock, "Блокировка", Modifier.weight(1f)) { onCommand("power_lock", JSONObject()) }
+            SystemActionTile(NexusIcon.Moon, "Сон", Modifier.weight(1f)) {
+                confirmAction = "power_sleep" to "Перевести ПК в сон?"
+            }
+            SystemActionTile(NexusIcon.Lock, "Блокировка", Modifier.weight(1f)) {
+                confirmAction = "power_lock" to "Заблокировать ПК?"
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SystemActionTile(NexusIcon.Monitor, "Выключить экран", Modifier.weight(1f)) { onCommand("monitor_off", JSONObject()) }
+            SystemActionTile(NexusIcon.Monitor, "Выключить экран", Modifier.weight(1f)) {
+                confirmAction = "monitor_off" to "Выключить экран?"
+            }
             SystemActionTile(NexusIcon.Task, "Диспетчер задач", Modifier.weight(1f)) { shortcut(onCommand, listOf("Ctrl", "Shift", "Esc")) }
         }
         SystemSliderCard(
@@ -996,13 +1244,15 @@ private fun SystemScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
             onValueChange = { volume = it },
             onDone = { onCommand("volume_set", JSONObject().put("value", volume.toInt())) }
         )
-        SystemSliderCard(
-            icon = NexusIcon.Sun,
-            title = "Яркость экрана",
-            value = brightness,
-            onValueChange = { brightness = it },
-            onDone = { onCommand("brightness_set", JSONObject().put("value", brightness.toInt())) }
-        )
+        if (snapshot.screenBrightness != null) {
+            SystemSliderCard(
+                icon = NexusIcon.Sun,
+                title = "Яркость экрана",
+                value = brightness,
+                onValueChange = { brightness = it },
+                onDone = { onCommand("brightness_set", JSONObject().put("value", brightness.toInt())) }
+            )
+        }
         SystemSummaryCard(snapshot)
     }
 
@@ -1471,46 +1721,6 @@ private fun ProgressBar(progress: Float, color: Color) {
 }
 
 @Composable
-private fun Poster() {
-    Canvas(
-        Modifier
-            .fillMaxWidth()
-            .height(250.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFF111827))
-            .border(1.dp, CardStroke, RoundedCornerShape(18.dp))
-    ) {
-        drawRect(Brush.linearGradient(listOf(Color(0xFF16334A), Color(0xFF0B1220), Color(0xFF2B1830))))
-        repeat(55) {
-            val x = ((it * 37) % 100) / 100f * size.width
-            val y = ((it * 61) % 100) / 100f * size.height
-            drawCircle(Color.White.copy(alpha = .45f), radius = if (it % 8 == 0) 2.2f else 1.2f, center = Offset(x, y))
-        }
-        drawCircle(Brush.radialGradient(listOf(Color(0xFFFFF7ED), Color(0x55F0ABFC), Color.Transparent)), radius = size.width * .26f, center = Offset(size.width * .72f, size.height * .32f))
-        val ship = Path().apply {
-            moveTo(size.width * .16f, size.height * .55f)
-            lineTo(size.width * .63f, size.height * .47f)
-            lineTo(size.width * .48f, size.height * .62f)
-            lineTo(size.width * .22f, size.height * .65f)
-            close()
-        }
-        drawPath(ship, Color(0xFF1F2937))
-        drawPath(ship, Color(0xFF94A3B8).copy(alpha = .25f), style = Stroke(width = 2.dp.toPx()))
-    }
-}
-
-@Composable
-private fun SliderLine(value: Float, onValueChange: (Float) -> Unit, onDone: () -> Unit) {
-    Slider(
-        value = value,
-        onValueChange = onValueChange,
-        onValueChangeFinished = onDone,
-        valueRange = 0f..100f,
-        colors = sliderColors()
-    )
-}
-
-@Composable
 private fun sliderColors() = SliderDefaults.colors(
     thumbColor = Teal,
     activeTrackColor = Cyan,
@@ -1638,6 +1848,8 @@ private fun ConnectionDialog(
     port: String,
     token: String,
     status: String,
+    versionText: String,
+    updateStatus: String,
     onHostChange: (String) -> Unit,
     onPortChange: (String) -> Unit,
     onTokenChange: (String) -> Unit,
@@ -1646,6 +1858,7 @@ private fun ConnectionDialog(
     onScanQr: () -> Unit,
     onOpenPrograms: () -> Unit,
     onRefreshPrograms: () -> Unit,
+    onCheckUpdates: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -1655,13 +1868,17 @@ private fun ConnectionDialog(
         titleContentColor = TextMain,
         textContentColor = TextMuted,
         shape = RoundedCornerShape(28.dp),
-        title = { Text("Настройки", fontWeight = FontWeight.Bold) },
+        title = { Text("Подключение к ПК", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(versionText, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("1. Откройте Nexus Remote PC на компьютере.", color = TextMuted, lineHeight = 19.sp)
+                Text("2. Нажмите “Найти ПК” или сканируйте QR из окна PC-приложения.", color = TextMuted, lineHeight = 19.sp)
+                Text("3. Подтвердите новое устройство на ПК.", color = TextMuted, lineHeight = 19.sp)
                 SoftTextField(host, onHostChange, "IP компьютера", KeyboardType.Uri)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SoftTextField(port, onPortChange, "Порт", KeyboardType.Number, Modifier.weight(.8f))
-                    SoftTextField(token, onTokenChange, "Ключ", KeyboardType.Text, Modifier.weight(1.2f))
+                SoftTextField(port, onPortChange, "Порт", KeyboardType.Number)
+                if (token.isNotBlank()) {
+                    Text("Устройство сопряжено", color = Green, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
@@ -1696,7 +1913,16 @@ private fun ConnectionDialog(
                 TextButton(onClick = onRefreshPrograms, modifier = Modifier.align(Alignment.End)) {
                     Text("Обновить список программ", color = Cyan)
                 }
-                Text(status, color = if (status.startsWith("Нет связи") || status.startsWith("Ошибка")) Danger else TextMuted)
+                TextButton(onClick = onCheckUpdates, modifier = Modifier.align(Alignment.End)) {
+                    Text("Проверить обновления", color = Cyan)
+                }
+                Text(updateStatus, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    status,
+                    color = if (status.startsWith("Нет связи") || status.startsWith("Ошибка") || status.contains("недоступен", true)) Danger else TextMuted,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
                 if (connected) {
                     TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
                         Text("Закрыть")

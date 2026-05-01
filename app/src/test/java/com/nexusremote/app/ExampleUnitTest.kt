@@ -1,4 +1,4 @@
-package com.example.nexusremote
+package com.nexusremote.app
 
 import org.junit.Test
 
