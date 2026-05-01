@@ -7,7 +7,7 @@
 - Android-приложение `Nexus Remote`
 - Windows-компаньон `Nexus Remote PC`
 - MSI installer для Windows
-- APK и AAB для Android
+- APK для Android
 - QR-сопряжение и список доверенных устройств
 - Автопоиск ПК в локальной сети
 - Мониторинг системы, запуск программ, медиакнопки и системные команды
@@ -17,4 +17,3 @@
 
 - `NexusRemotePC-Setup.msi`
 - `NexusRemote-Android.apk`
-- `NexusRemote-Android.aab`

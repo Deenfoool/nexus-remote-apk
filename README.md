@@ -46,7 +46,6 @@
 
 - Windows installer: `C:\Users\salum\AndroidStudioProjects\nexusremote\pc-app\bin\Release\NexusRemotePC-Setup.msi`
 - Android APK: `C:\Users\salum\AndroidStudioProjects\nexusremote\app\build\outputs\apk\release\app-release.apk`
-- Android AAB: `C:\Users\salum\AndroidStudioProjects\nexusremote\app\build\outputs\bundle\release\app-release.aab`
 
 Для сборки общего пакета релиза:
 

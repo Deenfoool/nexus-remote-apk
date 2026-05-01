@@ -12,7 +12,6 @@ New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
 $files = @(
     @{ Source = (Join-Path $pcRoot "bin\Release\NexusRemotePC-Setup.msi"); Target = "NexusRemotePC-Setup.msi" }
     @{ Source = (Join-Path $androidRoot "app\build\outputs\apk\release\app-release.apk"); Target = "NexusRemote-Android.apk" }
-    @{ Source = (Join-Path $androidRoot "app\build\outputs\bundle\release\app-release.aab"); Target = "NexusRemote-Android.aab" }
     @{ Source = (Join-Path $androidRoot "README.md"); Target = "README.md" }
     @{ Source = (Join-Path $androidRoot "INSTALL_WINDOWS.md"); Target = "INSTALL_WINDOWS.md" }
     @{ Source = (Join-Path $androidRoot "INSTALL_ANDROID.md"); Target = "INSTALL_ANDROID.md" }
