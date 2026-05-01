@@ -1205,6 +1205,7 @@ private fun SystemScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
     var volume by remember { mutableFloatStateOf(snapshot.systemVolume.toFloat()) }
     var brightness by remember { mutableFloatStateOf((snapshot.screenBrightness ?: 45).toFloat()) }
     var confirmAction by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var showShutdownTimer by remember { mutableStateOf(false) }
 
     LaunchedEffect(snapshot.systemVolume) {
         volume = snapshot.systemVolume.toFloat()
@@ -1235,7 +1236,9 @@ private fun SystemScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
             SystemActionTile(NexusIcon.Monitor, "Выключить экран", Modifier.weight(1f)) {
                 confirmAction = "monitor_off" to "Выключить экран?"
             }
-            SystemActionTile(NexusIcon.Task, "Диспетчер задач", Modifier.weight(1f)) { shortcut(onCommand, listOf("Ctrl", "Shift", "Esc")) }
+            SystemActionTile(NexusIcon.Power, "Таймер выключения", Modifier.weight(1f)) {
+                showShutdownTimer = true
+            }
         }
         SystemSliderCard(
             icon = NexusIcon.Volume,
@@ -1276,6 +1279,48 @@ private fun SystemScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
             dismissButton = {
                 TextButton(onClick = { confirmAction = null }) {
                     Text("Отмена", color = TextMuted)
+                }
+            }
+        )
+    }
+
+    if (showShutdownTimer) {
+        AlertDialog(
+            onDismissRequest = { showShutdownTimer = false },
+            containerColor = CardBg,
+            titleContentColor = TextMain,
+            textContentColor = TextMuted,
+            shape = RoundedCornerShape(24.dp),
+            title = { Text("Таймер выключения", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Выберите, через сколько выключить ПК.", color = TextMuted)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        CapsuleButton("15 мин", filled = false, compact = true) {
+                            onCommand("power_shutdown_timer", JSONObject().put("seconds", 15 * 60))
+                            showShutdownTimer = false
+                        }
+                        CapsuleButton("30 мин", filled = true, compact = true) {
+                            onCommand("power_shutdown_timer", JSONObject().put("seconds", 30 * 60))
+                            showShutdownTimer = false
+                        }
+                        CapsuleButton("60 мин", filled = false, compact = true) {
+                            onCommand("power_shutdown_timer", JSONObject().put("seconds", 60 * 60))
+                            showShutdownTimer = false
+                        }
+                    }
+                    TextButton(onClick = {
+                        onCommand("power_shutdown_cancel", JSONObject())
+                        showShutdownTimer = false
+                    }) {
+                        Text("Отменить таймер", color = Cyan)
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showShutdownTimer = false }) {
+                    Text("Закрыть", color = TextMuted)
                 }
             }
         )

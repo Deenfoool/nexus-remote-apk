@@ -10,6 +10,8 @@ public static class CommandExecutor
     private static readonly HashSet<string> DangerousCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "power_shutdown",
+        "power_shutdown_timer",
+        "power_shutdown_cancel",
         "power_restart",
         "power_sleep",
         "power_lock",
@@ -23,6 +25,8 @@ public static class CommandExecutor
         return type switch
         {
             "power_shutdown" => "Выключить ПК сейчас?",
+            "power_shutdown_timer" => "Запланировать выключение ПК по таймеру?",
+            "power_shutdown_cancel" => "Отменить запланированное выключение ПК?",
             "power_restart" => "Перезагрузить ПК сейчас?",
             "power_sleep" => "Перевести ПК в сон?",
             "power_lock" => "Заблокировать ПК?",
@@ -69,6 +73,12 @@ public static class CommandExecutor
                     break;
                 case "power_shutdown":
                     Start("shutdown", "/s /t 0");
+                    break;
+                case "power_shutdown_timer":
+                    Start("shutdown", $"/s /t {Math.Clamp(GetInt(payload, "seconds", 1800), 60, 86400)}");
+                    break;
+                case "power_shutdown_cancel":
+                    Start("shutdown", "/a");
                     break;
                 case "power_restart":
                     Start("shutdown", "/r /t 0");
