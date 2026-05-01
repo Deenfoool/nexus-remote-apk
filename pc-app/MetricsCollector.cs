@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
+using NexusRemotePC.Media;
 
 namespace NexusRemotePC;
 
@@ -17,6 +18,7 @@ public static class MetricsCollector
     private static int _lastDown;
     private static int _lastUp;
     private static int? _lastDiskActivity;
+    private static readonly MediaBroker MediaBroker = MediaBroker.CreateDefault();
 
     public static object CreateSnapshot(CompanionStore store)
     {
@@ -26,6 +28,7 @@ public static class MetricsCollector
         var network = GetNetwork();
         var hardware = HardwareSensors.Read();
         var uptime = TimeSpan.FromMilliseconds(Environment.TickCount64);
+        var media = GetMediaSnapshot();
 
         return new
         {
@@ -62,15 +65,71 @@ public static class MetricsCollector
                 power = "Нормально",
                 last_action = CommandExecutor.LastAction
             },
-            media = new
+            media,
+            programs = store.LoadPrograms().Select(ProgramRuntime.ToStatus).ToArray()
+        };
+    }
+
+    private static object GetMediaSnapshot()
+    {
+        try
+        {
+            var snapshot = MediaBroker.GetSnapshotAsync(CancellationToken.None).GetAwaiter().GetResult();
+            var active = snapshot.Sources.FirstOrDefault(source => source.SourceId == snapshot.ActiveSourceId);
+            return new
             {
+                active_source_id = snapshot.ActiveSourceId,
+                updated_at_utc = snapshot.UpdatedAtUtc,
+                title = active?.Title ?? "",
+                process = active?.AppName ?? "",
+                position = active?.PositionMs ?? 0,
+                duration = active?.DurationMs ?? 0,
+                sources = snapshot.Sources.Select(source => new
+                {
+                    source_id = source.SourceId,
+                    source_type = source.SourceType,
+                    app_id = source.AppId,
+                    app_name = source.AppName,
+                    site = source.Site,
+                    tab_title = source.TabTitle,
+                    media_kind = source.MediaKind,
+                    title = source.Title,
+                    artist = source.Artist,
+                    album = source.Album,
+                    artwork_url = source.ArtworkUrl,
+                    artwork_base64 = source.ArtworkBase64,
+                    position_ms = source.PositionMs,
+                    duration_ms = source.DurationMs,
+                    is_playing = source.IsPlaying,
+                    is_muted = source.IsMuted,
+                    priority = source.Priority,
+                    last_updated_utc = source.LastUpdatedUtc,
+                    capabilities = new
+                    {
+                        can_play = source.Capabilities.CanPlay,
+                        can_pause = source.Capabilities.CanPause,
+                        can_toggle_play_pause = source.Capabilities.CanTogglePlayPause,
+                        can_next = source.Capabilities.CanNext,
+                        can_previous = source.Capabilities.CanPrevious,
+                        can_seek = source.Capabilities.CanSeek
+                    }
+                }).ToArray()
+            };
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Warn($"Media snapshot fallback: {ex.Message}");
+            return new
+            {
+                active_source_id = (string?)null,
+                updated_at_utc = DateTime.UtcNow,
                 title = "",
                 process = "",
                 position = 0,
-                duration = 0
-            },
-            programs = store.LoadPrograms().Select(ProgramRuntime.ToStatus).ToArray()
-        };
+                duration = 0,
+                sources = Array.Empty<object>()
+            };
+        }
     }
 
     private static int GetCpuLoad()

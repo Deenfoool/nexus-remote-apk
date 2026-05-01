@@ -513,6 +513,38 @@ class MainActivity : ComponentActivity() {
         val system = snapshot.optJSONObject("system") ?: JSONObject()
         val media = snapshot.optJSONObject("media") ?: JSONObject()
         val programs = snapshot.optJSONArray("programs") ?: JSONArray()
+        val mediaSources = media.optJSONArray("sources") ?: JSONArray()
+        val activeSourceId = media.optString("active_source_id")
+        val activeSource = findActiveMediaSource(mediaSources, activeSourceId)
+        val activeMediaTitle = activeSource?.optString("title").orEmpty()
+        val activeMediaArtist = activeSource?.optString("artist").orEmpty()
+        val activeMediaApp = activeSource?.optString("app_name").orEmpty()
+        val activeMediaArtwork = activeSource?.optString("artwork_base64").orEmpty()
+        val mediaSubtitle = listOf(activeMediaArtist, activeMediaApp)
+            .filter { it.isNotBlank() }
+            .joinToString(" • ")
+        val parsedMediaSources = List(mediaSources.length()) { index ->
+            val item = mediaSources.optJSONObject(index) ?: JSONObject()
+            val capabilities = item.optJSONObject("capabilities") ?: JSONObject()
+            MediaSourceUi(
+                sourceId = item.optString("source_id"),
+                sourceType = item.optString("source_type"),
+                appName = item.optString("app_name"),
+                site = item.optString("site"),
+                title = item.optString("title"),
+                artist = item.optString("artist"),
+                tabTitle = item.optString("tab_title"),
+                artworkBase64 = item.optString("artwork_base64"),
+                mediaKind = item.optString("media_kind"),
+                positionMs = item.optLong("position_ms"),
+                durationMs = item.optLong("duration_ms"),
+                isPlaying = item.optBoolean("is_playing"),
+                canTogglePlayPause = capabilities.optBoolean("can_toggle_play_pause", true),
+                canNext = capabilities.optBoolean("can_next"),
+                canPrevious = capabilities.optBoolean("can_previous"),
+                canSeek = capabilities.optBoolean("can_seek")
+            )
+        }.filter { it.sourceId.isNotBlank() }
 
         return PcSnapshot(
             hostname = system.optString("hostname", "Ждём данные"),
@@ -539,8 +571,14 @@ class MainActivity : ComponentActivity() {
             networkTotalMbps = network.optInt("total_mbps", 0),
             networkDownMbps = network.optInt("down_mbps", 0),
             networkUpMbps = network.optInt("up_mbps", 0),
-            mediaTitle = media.optString("title"),
-            mediaProcess = media.optString("process"),
+            mediaSourceId = activeSourceId,
+            mediaTitle = activeMediaTitle.ifBlank { media.optString("title") },
+            mediaProcess = mediaSubtitle.ifBlank { activeMediaApp.ifBlank { media.optString("process") } },
+            mediaArtworkBase64 = activeMediaArtwork,
+            mediaPositionMs = activeSource?.optLong("position_ms") ?: media.optLong("position"),
+            mediaDurationMs = activeSource?.optLong("duration_ms") ?: media.optLong("duration"),
+            mediaIsPlaying = activeSource?.optBoolean("is_playing") ?: false,
+            mediaSources = parsedMediaSources,
             programs = List(programs.length()) { index ->
                 val item = programs.optJSONObject(index) ?: JSONObject()
                 ProgramStatus(
@@ -605,10 +643,57 @@ data class PcSnapshot(
     val networkTotalMbps: Int = 0,
     val networkDownMbps: Int = 0,
     val networkUpMbps: Int = 0,
+    val mediaSourceId: String = "",
     val mediaTitle: String = "",
     val mediaProcess: String = "",
+    val mediaArtworkBase64: String = "",
+    val mediaPositionMs: Long = 0,
+    val mediaDurationMs: Long = 0,
+    val mediaIsPlaying: Boolean = false,
+    val mediaSources: List<MediaSourceUi> = emptyList(),
     val programs: List<ProgramStatus> = emptyList()
 )
+
+data class MediaSourceUi(
+    val sourceId: String = "",
+    val sourceType: String = "",
+    val appName: String = "",
+    val site: String = "",
+    val title: String = "",
+    val artist: String = "",
+    val tabTitle: String = "",
+    val artworkBase64: String = "",
+    val mediaKind: String = "unknown",
+    val positionMs: Long = 0,
+    val durationMs: Long = 0,
+    val isPlaying: Boolean = false,
+    val canTogglePlayPause: Boolean = true,
+    val canNext: Boolean = false,
+    val canPrevious: Boolean = false,
+    val canSeek: Boolean = false
+) {
+    val displayTitle: String
+        get() = title.ifBlank { tabTitle.ifBlank { "Медиа-источник" } }
+
+    val displaySubtitle: String
+        get() = listOf(artist, appName, site)
+            .filter { it.isNotBlank() }
+            .joinToString(" • ")
+            .ifBlank { "Источник без metadata" }
+}
+
+private fun findActiveMediaSource(sources: JSONArray, activeSourceId: String): JSONObject? {
+    if (sources.length() == 0) return null
+    if (activeSourceId.isNotBlank()) {
+        repeat(sources.length()) { index ->
+            val item = sources.optJSONObject(index) ?: return@repeat
+            if (item.optString("source_id") == activeSourceId) {
+                return item
+            }
+        }
+    }
+    return sources.optJSONObject(0)
+}
 
 private enum class MainTab(val title: String, val header: String, val icon: NexusIcon) {
     Monitor("Мониторинг", "Мой ПК", NexusIcon.Monitor),
@@ -1072,17 +1157,49 @@ private fun MonitorScreen(snapshot: PcSnapshot) {
 @Composable
 private fun PlayerScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -> Unit) {
     var volume by remember { mutableFloatStateOf(snapshot.systemVolume.toFloat()) }
-    val mediaTitle = snapshot.mediaTitle
+    var selectedSourceId by remember { mutableStateOf(snapshot.mediaSourceId) }
+    var seekValue by remember { mutableFloatStateOf(snapshot.mediaPositionMs.toFloat()) }
+    var isSeeking by remember { mutableStateOf(false) }
+    val selectedSource = snapshot.mediaSources.firstOrNull { it.sourceId == selectedSourceId }
+        ?: snapshot.mediaSources.firstOrNull()
+    val mediaSourceId = selectedSource?.sourceId ?: snapshot.mediaSourceId
+    val mediaPayload = remember(mediaSourceId) {
+        JSONObject().apply {
+            if (mediaSourceId.isNotBlank()) {
+                put("sourceId", mediaSourceId)
+            }
+        }
+    }
+    val mediaTitle = (selectedSource?.displayTitle ?: snapshot.mediaTitle)
         .takeIf { it.isNotBlank() }
         ?.replace(" - VLC media player", "")
         ?.replace(" - MPC-HC", "")
         ?: "Медиа-контроллер"
-    val mediaSubtitle = snapshot.mediaProcess
+    val mediaSubtitle = (selectedSource?.displaySubtitle ?: snapshot.mediaProcess)
         .takeIf { it.isNotBlank() }
         ?: "Системные media keys"
+    val mediaIsPlaying = selectedSource?.isPlaying ?: snapshot.mediaIsPlaying
+    val mediaDurationMs = (selectedSource?.durationMs ?: snapshot.mediaDurationMs).coerceAtLeast(0L)
+    val mediaPositionMs = (selectedSource?.positionMs ?: snapshot.mediaPositionMs).coerceIn(0L, mediaDurationMs.takeIf { it > 0 } ?: Long.MAX_VALUE)
+    val mediaArtwork = selectedSource?.artworkBase64 ?: snapshot.mediaArtworkBase64
+    val artworkBitmap = remember(mediaArtwork) {
+        decodeBase64Image(mediaArtwork)
+    }
 
     LaunchedEffect(snapshot.systemVolume) {
         volume = snapshot.systemVolume.toFloat()
+    }
+    LaunchedEffect(snapshot.mediaSourceId, snapshot.mediaSources) {
+        if (snapshot.mediaSources.none { it.sourceId == selectedSourceId }) {
+            selectedSourceId = snapshot.mediaSourceId.ifBlank { snapshot.mediaSources.firstOrNull()?.sourceId.orEmpty() }
+        } else if (selectedSourceId.isBlank()) {
+            selectedSourceId = snapshot.mediaSourceId.ifBlank { snapshot.mediaSources.firstOrNull()?.sourceId.orEmpty() }
+        }
+    }
+    LaunchedEffect(mediaPositionMs, mediaDurationMs, selectedSourceId, isSeeking) {
+        if (!isSeeking) {
+            seekValue = mediaPositionMs.toFloat()
+        }
     }
 
     GlowCard {
@@ -1097,12 +1214,47 @@ private fun PlayerScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
                 .border(1.dp, CardStroke, RoundedCornerShape(18.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(NexusIcon.Play, contentDescription = null, tint = Cyan, modifier = Modifier.size(46.dp))
+            if (artworkBitmap != null) {
+                Image(
+                    bitmap = artworkBitmap,
+                    contentDescription = mediaTitle,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xA0000000))))
+                )
+            } else {
+                Icon(NexusIcon.Play, contentDescription = null, tint = Cyan, modifier = Modifier.size(46.dp))
+            }
+        }
+        if (mediaDurationMs > 0) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Slider(
+                    value = seekValue.coerceIn(0f, mediaDurationMs.toFloat()),
+                    onValueChange = {
+                        isSeeking = true
+                        seekValue = it
+                    },
+                    onValueChangeFinished = {
+                        isSeeking = false
+                        onCommand("media_seek_to", JSONObject(mediaPayload.toString()).put("positionMs", seekValue.toLong()))
+                    },
+                    valueRange = 0f..mediaDurationMs.toFloat(),
+                    colors = sliderColors()
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(formatMediaTime(if (isSeeking) seekValue.toLong() else mediaPositionMs), color = TextMuted)
+                    Text(formatMediaTime(mediaDurationMs), color = TextMuted)
+                }
+            }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            RoundControl(NexusIcon.Rewind, "-5 сек") { shortcut(onCommand, listOf("Left")) }
-            PlayButton { onCommand("media_play_pause", JSONObject()) }
-            RoundControl(NexusIcon.Forward, "+5 сек") { shortcut(onCommand, listOf("Right")) }
+            RoundControl(NexusIcon.Rewind, "-5 сек") { onCommand("media_seek_relative", JSONObject(mediaPayload.toString()).put("seconds", -5)) }
+            PlayButton(isPlaying = mediaIsPlaying) { onCommand("media_play_pause", JSONObject(mediaPayload.toString())) }
+            RoundControl(NexusIcon.Forward, "+5 сек") { onCommand("media_seek_relative", JSONObject(mediaPayload.toString()).put("seconds", 5)) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
             SquareControl(NexusIcon.VolumeOff) { onCommand("volume_mute", JSONObject()) }
@@ -1117,10 +1269,22 @@ private fun PlayerScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
             SquareControl(NexusIcon.Volume) { onCommand("volume_up", JSONObject().put("steps", 2)) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ControlTile(NexusIcon.SkipPrevious, "Назад", Modifier.weight(1f)) { onCommand("media_prev", JSONObject()) }
-            ControlTile(NexusIcon.SkipNext, "Вперёд", Modifier.weight(1f)) { onCommand("media_next", JSONObject()) }
-            ControlTile(NexusIcon.Fullscreen, "Полный экран", Modifier.weight(1f)) { shortcut(onCommand, listOf("F11")) }
-            ControlTile(NexusIcon.Subtitles, "Субтитры", Modifier.weight(1f)) { shortcut(onCommand, listOf("C")) }
+            ControlTile(NexusIcon.SkipPrevious, "Назад", Modifier.weight(1f)) { onCommand("media_prev", JSONObject(mediaPayload.toString())) }
+            ControlTile(NexusIcon.SkipNext, "Вперёд", Modifier.weight(1f)) { onCommand("media_next", JSONObject(mediaPayload.toString())) }
+            ControlTile(NexusIcon.Fullscreen, "Полный экран", Modifier.weight(1f)) { onCommand("media_fullscreen", JSONObject(mediaPayload.toString())) }
+            ControlTile(NexusIcon.Subtitles, "Субтитры", Modifier.weight(1f)) { onCommand("media_subtitles", JSONObject(mediaPayload.toString())) }
+        }
+        if (snapshot.mediaSources.size > 1) {
+            Text("Источники", color = TextMain, fontWeight = FontWeight.Bold)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                snapshot.mediaSources.forEach { source ->
+                    MediaSourceRow(
+                        source = source,
+                        selected = source.sourceId == mediaSourceId,
+                        onClick = { selectedSourceId = source.sourceId }
+                    )
+                }
+            }
         }
     }
 }
@@ -1783,9 +1947,53 @@ private fun RoundControl(icon: NexusIcon, label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PlayButton(onClick: () -> Unit) {
+private fun PlayButton(isPlaying: Boolean, onClick: () -> Unit) {
     PressableBox(Modifier.size(126.dp).clip(CircleShape), onClick = onClick, prominent = true) {
-        Icon(NexusIcon.Pause, contentDescription = "Пауза", tint = TextMain, modifier = Modifier.size(56.dp))
+        Icon(
+            if (isPlaying) NexusIcon.Pause else NexusIcon.Play,
+            contentDescription = if (isPlaying) "Пауза" else "Воспроизвести",
+            tint = TextMain,
+            modifier = Modifier.size(56.dp)
+        )
+    }
+}
+
+@Composable
+private fun MediaSourceRow(source: MediaSourceUi, selected: Boolean, onClick: () -> Unit) {
+    PressableBox(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp)),
+        onClick = onClick,
+        prominent = selected
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(if (source.isPlaying) Green else TextMuted.copy(alpha = 0.6f))
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(source.displayTitle, color = TextMain, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(source.displaySubtitle, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(
+                when (source.mediaKind) {
+                    "video" -> "Видео"
+                    "music" -> "Музыка"
+                    else -> source.appName.ifBlank { "Источник" }
+                },
+                color = if (selected) Cyan else TextMuted,
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -2010,6 +2218,24 @@ private fun formatGb(value: Double): String {
     val rounded = kotlin.math.round(value * 10.0) / 10.0
     return if (rounded % 1.0 == 0.0) rounded.toInt().toString() else rounded.toString()
 }
+
+private fun formatMediaTime(valueMs: Long): String {
+    val totalSeconds = (valueMs / 1000).coerceAtLeast(0)
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%02d:%02d".format(minutes, seconds)
+    }
+}
+
+private fun decodeBase64Image(base64: String) = runCatching {
+    if (base64.isBlank()) return@runCatching null
+    val bytes = Base64.decode(base64, Base64.DEFAULT)
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+}.getOrNull()
 
 private fun fallbackProgress(value: Int, fallback: Float): Float {
     return if (value > 0) value / 100f else fallback

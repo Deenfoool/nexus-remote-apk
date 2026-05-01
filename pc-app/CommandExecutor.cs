@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using NexusRemotePC.Media;
 
 namespace NexusRemotePC;
 
@@ -39,19 +40,22 @@ public static class CommandExecutor
     {
         try
         {
+            if (MediaCommandRouter.Shared.TryHandle(type))
+            {
+                var handled = MediaCommandRouter.Shared.ExecuteAsync(type, payload, CancellationToken.None).GetAwaiter().GetResult();
+                if (!handled)
+                {
+                    ExecuteMediaFallback(type, payload);
+                }
+
+                LastAction = DateTime.Now.ToString("HH:mm:ss");
+                return new CommandResult(true, "");
+            }
+
             switch (type)
             {
                 case "launcher_run":
                     Start(GetString(payload, "path"));
-                    break;
-                case "media_play_pause":
-                    PressKey(0xB3);
-                    break;
-                case "media_prev":
-                    PressKey(0xB1);
-                    break;
-                case "media_next":
-                    PressKey(0xB0);
                     break;
                 case "volume_mute":
                     VolumeController.ToggleMute();
@@ -173,6 +177,42 @@ public static class CommandExecutor
     {
         keybd_event(key, 0, 0, UIntPtr.Zero);
         keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+    }
+
+    private static void ExecuteMediaFallback(string type, JsonElement payload)
+    {
+        switch (type)
+        {
+            case "media_play_pause":
+                PressKey(0xB3);
+                break;
+            case "media_prev":
+                PressKey(0xB1);
+                break;
+            case "media_next":
+                PressKey(0xB0);
+                break;
+            case "media_seek_relative":
+                var deltaSeconds = GetInt(payload, "seconds", 0);
+                if (deltaSeconds < 0)
+                {
+                    RepeatKey(0x25, Math.Max(1, Math.Abs(deltaSeconds) / 5));
+                }
+                else if (deltaSeconds > 0)
+                {
+                    RepeatKey(0x27, Math.Max(1, Math.Abs(deltaSeconds) / 5));
+                }
+                break;
+            case "media_fullscreen":
+                PressShortcut(["F11"]);
+                break;
+            case "media_subtitles":
+                PressShortcut(["C"]);
+                break;
+            case "media_stop":
+                PressKey(0xB2);
+                break;
+        }
     }
 
     private static int GetInt(JsonElement payload, string name, int fallback)

@@ -13,6 +13,7 @@ public partial class MainWindow : Window
 {
     private readonly CompanionStore _store = new();
     private readonly NexusServer _server;
+    private readonly NexusRemotePC.Media.BrowserBridgeServer _browserBridge = NexusRemotePC.Media.BrowserBridgeServer.Shared;
     private readonly DiscoveryService _discovery;
     private Forms.NotifyIcon? _trayIcon;
     private ProgramManagerWindow? _programManager;
@@ -34,8 +35,9 @@ public partial class MainWindow : Window
         SetupTray();
         AutostartCheck.IsChecked = AutostartManager.IsEnabled();
         await _server.StartAsync();
+        await _browserBridge.StartAsync();
         _discovery.Start();
-        AppLogger.Info("Сервер и окно управления запущены.");
+        AppLogger.Info("Сервер, browser bridge и окно управления запущены.");
         _refreshTimer.Interval = TimeSpan.FromSeconds(3);
         _refreshTimer.Tick += (_, _) => RenderState();
         _refreshTimer.Start();
@@ -235,6 +237,7 @@ public partial class MainWindow : Window
         _reallyClose = true;
         _refreshTimer.Stop();
         _discovery.Dispose();
+        _browserBridge.Dispose();
         _server.Dispose();
         if (_trayIcon != null)
         {

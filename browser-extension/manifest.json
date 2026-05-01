@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Nexus Remote Browser Bridge",
+  "version": "0.1.0",
+  "description": "Bridge active media tabs from Chromium browsers to Nexus Remote PC.",
+  "permissions": [
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*.youtube.com/*",
+    "https://youtube.com/*",
+    "https://music.youtube.com/*",
+    "https://vk.com/*",
+    "https://*.vk.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.youtube.com/*",
+        "https://youtube.com/*",
+        "https://music.youtube.com/*",
+        "https://vk.com/*",
+        "https://*.vk.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Nexus Remote Bridge"
+  }
+}
