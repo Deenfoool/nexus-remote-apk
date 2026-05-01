@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $androidRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pcRoot = Join-Path (Split-Path -Parent $androidRoot) "Nexus Remote PC"
+$pcRoot = Join-Path $androidRoot "pc-app"
 $version = "1.0.0"
 $releaseRoot = Join-Path $androidRoot "release"
 $packageDir = Join-Path $releaseRoot "Nexus-Remote-$version"

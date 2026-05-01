@@ -1,0 +1,86 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="Nexus Remote PC"
+    Manufacturer="Nexus Remote"
+    Version="1.0.0.0"
+    UpgradeCode="{B9A1AA07-6D0A-48EB-AC41-9E5E527E79B6}"
+    Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="Установлена более новая версия Nexus Remote PC." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="$(var.PublishDir)\NexusRemote.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="Nexus Remote PC" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Nexus Remote PC" />
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="Nexus Remote PC" Level="1">
+      <ComponentGroupRef Id="AppComponents" />
+    </Feature>
+
+    <CustomAction
+      Id="AddFirewallTcp"
+      Directory="INSTALLFOLDER"
+      Execute="deferred"
+      Impersonate="no"
+      ExeCommand='[SystemFolder]netsh.exe advfirewall firewall add rule name="Nexus Remote PC TCP 8765" dir=in action=allow protocol=TCP localport=8765'
+      Return="ignore" />
+
+    <CustomAction
+      Id="AddFirewallUdp"
+      Directory="INSTALLFOLDER"
+      Execute="deferred"
+      Impersonate="no"
+      ExeCommand='[SystemFolder]netsh.exe advfirewall firewall add rule name="Nexus Remote PC UDP 8766" dir=in action=allow protocol=UDP localport=8766'
+      Return="ignore" />
+
+    <CustomAction
+      Id="RemoveFirewallTcp"
+      Directory="INSTALLFOLDER"
+      Execute="deferred"
+      Impersonate="no"
+      ExeCommand='[SystemFolder]netsh.exe advfirewall firewall delete rule name="Nexus Remote PC TCP 8765"'
+      Return="ignore" />
+
+    <CustomAction
+      Id="RemoveFirewallUdp"
+      Directory="INSTALLFOLDER"
+      Execute="deferred"
+      Impersonate="no"
+      ExeCommand='[SystemFolder]netsh.exe advfirewall firewall delete rule name="Nexus Remote PC UDP 8766"'
+      Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="AddFirewallTcp" After="InstallFiles" Condition="NOT Installed" />
+      <Custom Action="AddFirewallUdp" After="AddFirewallTcp" Condition="NOT Installed" />
+      <Custom Action="RemoveFirewallTcp" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
+      <Custom Action="RemoveFirewallUdp" After="RemoveFirewallTcp" Condition="REMOVE=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="AppComponents" Directory="INSTALLFOLDER">
+      <Component Id="MainExecutable" Guid="{2379FAE4-493E-43CC-8596-7D0CFD281D2D}">
+        <File Id="NexusRemotePCExe" Source="$(var.PublishDir)\NexusRemotePC.exe" KeyPath="yes" />
+        <Shortcut
+          Id="StartMenuShortcut"
+          Directory="ApplicationProgramsFolder"
+          Name="Nexus Remote PC"
+          Description="Nexus Remote PC companion"
+          Target="[INSTALLFOLDER]NexusRemotePC.exe"
+          WorkingDirectory="INSTALLFOLDER" />
+      </Component>
+
+      <Component Id="StartMenuFolderCleanup" Guid="{70231109-2F05-4D5F-8F48-7D3E3175D262}" Directory="ApplicationProgramsFolder">
+        <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\Nexus Remote PC" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

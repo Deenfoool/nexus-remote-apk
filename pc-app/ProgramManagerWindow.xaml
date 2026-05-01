@@ -1,0 +1,60 @@
+<Window x:Class="NexusRemotePC.ProgramManagerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Менеджер программ" Height="560" Width="760"
+        WindowStartupLocation="CenterOwner" Background="#07101D">
+    <Window.Resources>
+        <SolidColorBrush x:Key="PanelBrush" Color="#101F31"/>
+        <SolidColorBrush x:Key="PanelStroke" Color="#22344C"/>
+        <SolidColorBrush x:Key="TextMain" Color="#F4F8FF"/>
+        <SolidColorBrush x:Key="TextMuted" Color="#A7B4C6"/>
+        <Style TargetType="Button">
+            <Setter Property="Foreground" Value="#F4F8FF"/>
+            <Setter Property="Background" Value="#13263B"/>
+            <Setter Property="BorderBrush" Value="#2A4767"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="14,9"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextMain}"/>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="Программы" FontSize="30" FontWeight="Bold"/>
+            <TextBlock Text="Выбери .exe/.lnk файлы, которые будут видны во вкладке “Программы” на телефоне."
+                       Foreground="{StaticResource TextMuted}" FontSize="15" Margin="0,6,0,18"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelStroke}"
+                BorderThickness="1" CornerRadius="14" Padding="12">
+            <ListView x:Name="ProgramsList" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextMain}">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="Название" DisplayMemberBinding="{Binding Name}" Width="210"/>
+                        <GridViewColumn Header="Путь" DisplayMemberBinding="{Binding Path}" Width="460"/>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </Border>
+
+        <DockPanel Grid.Row="2" Margin="0,16,0,0">
+            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                <Button Content="Добавить" Margin="0,0,10,0" Click="Add_Click"/>
+                <Button Content="Удалить" Margin="0,0,10,0" Click="Remove_Click"/>
+                <Button Content="Запустить" Click="Run_Click"/>
+            </StackPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Сохранить" Margin="0,0,10,0" Click="Save_Click"/>
+                <Button Content="Закрыть" Click="Close_Click"/>
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</Window>

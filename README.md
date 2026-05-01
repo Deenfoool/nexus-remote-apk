@@ -2,6 +2,13 @@
 
 `Nexus Remote` это связка из Android-приложения и Windows-компаньона для управления своим ПК по локальной сети.
 
+## Структура репозитория
+
+- `app/` - Android-приложение.
+- `pc-app/` - Windows-приложение `Nexus Remote PC`.
+- `release/` - локально собранные release-пакеты, не хранятся в git.
+- `build-release-package.ps1` - упаковка общего релизного набора.
+
 Что умеет релиз `1.0.0`:
 
 - подключение через QR-сопряжение;
@@ -37,7 +44,7 @@
 
 После сборки основные файлы лежат здесь:
 
-- Windows installer: `C:\Users\salum\AndroidStudioProjects\Nexus Remote PC\bin\Release\NexusRemotePC-Setup.msi`
+- Windows installer: `C:\Users\salum\AndroidStudioProjects\nexusremote\pc-app\bin\Release\NexusRemotePC-Setup.msi`
 - Android APK: `C:\Users\salum\AndroidStudioProjects\nexusremote\app\build\outputs\apk\release\app-release.apk`
 - Android AAB: `C:\Users\salum\AndroidStudioProjects\nexusremote\app\build\outputs\bundle\release\app-release.aab`
 

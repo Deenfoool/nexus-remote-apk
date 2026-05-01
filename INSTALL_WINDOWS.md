@@ -7,7 +7,7 @@
 Путь после локальной сборки:
 
 ```text
-C:\Users\salum\AndroidStudioProjects\Nexus Remote PC\bin\Release\NexusRemotePC-Setup.msi
+C:\Users\salum\AndroidStudioProjects\nexusremote\pc-app\bin\Release\NexusRemotePC-Setup.msi
 ```
 
 ## Установка
