@@ -2,6 +2,13 @@
 
 This folder contains the browser companion for `Nexus Remote PC`.
 
+## Build environment
+
+- Windows 10/11
+- PowerShell 5.1+ or PowerShell 7+
+- .NET runtime is not required for the extension itself
+- no Node.js, npm, webpack, minifier, or transpiler is used
+
 ## Ready artifacts
 
 Build packages with:
@@ -9,6 +16,19 @@ Build packages with:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build-browser-extensions.ps1
 ```
+
+The build script uses:
+
+- `browser-extension/manifest.chromium.json`
+- `browser-extension/manifest.firefox.json`
+- `browser-extension/background.js`
+- `browser-extension/content.js`
+- `browser-extension/popup.html`
+- `browser-extension/popup.css`
+- `browser-extension/popup.js`
+- `browser-extension/source-assets/icon-source.png`
+
+The script generates resized icons into `browser-extension/icons/` and then creates the final browser packages.
 
 Output:
 

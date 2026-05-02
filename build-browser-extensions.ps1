@@ -4,12 +4,14 @@ $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $extRoot = Join-Path $repoRoot "browser-extension"
 $distRoot = Join-Path $extRoot "dist"
 $iconsRoot = Join-Path $extRoot "icons"
-$srcIcon = Join-Path $repoRoot "app\\src\\main\\res\\mipmap-xxxhdpi\\ic_launcher.png"
+$srcIcon = Join-Path $extRoot "source-assets\\icon-source.png"
 
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $iconsRoot | Out-Null
 
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 function New-ResizedIcon {
     param(
@@ -90,7 +92,19 @@ function New-BrowserPackage {
         Remove-Item $zipPath -Force
     }
 
-    Compress-Archive -Path (Join-Path $workDir "*") -DestinationPath $zipPath -Force
+    $archive = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        $basePath = (Resolve-Path $workDir).Path
+        Get-ChildItem -Path $workDir -Recurse -File | ForEach-Object {
+            $fullPath = $_.FullName
+            $relativePath = $fullPath.Substring($basePath.Length).TrimStart('\', '/')
+            $entryName = $relativePath -replace '\\', '/'
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $fullPath, $entryName, [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
 
     if ($ArchivePath.EndsWith(".xpi", [StringComparison]::OrdinalIgnoreCase)) {
         Move-Item $zipPath $ArchivePath -Force

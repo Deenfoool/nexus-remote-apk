@@ -10,6 +10,10 @@
 - отправляет данные в локальный bridge `Nexus Remote PC`;
 - показывает мини-панель состояния в popup самого расширения.
 
+Исходный файл иконки для сборки лежит здесь:
+
+- `browser-extension/source-assets/icon-source.png`
+
 ## Готовые пакеты
 
 После запуска [build-browser-extensions.ps1](C:/Users/salum/AndroidStudioProjects/nexusremote/build-browser-extensions.ps1) в папке `browser-extension/dist` появляются:

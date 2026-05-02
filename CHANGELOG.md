@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 - 2026-05-02
+
+- Обновлена иконка Android-приложения, чтобы она совпадала с витриной RuStore.
+- Подготовлены настоящие browser extension packages для Chrome, Yandex, Chromium/Edge и Firefox.
+- Добавлены popup, privacy policy и publishing docs для browser extensions.
+- Улучшен менеджер программ на ПК с автопоиском ярлыков и приложений.
+- Расширены сценарии медиаплеера и таймера выключения.
+
 ## 1.0.0 - 2026-05-01
 
 - Выпущен первый публичный релиз Nexus Remote.
