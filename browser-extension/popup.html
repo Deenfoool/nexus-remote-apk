@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nexus Remote Bridge</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <img class="hero__icon" src="icons/icon-48.png" alt="Nexus Remote" />
+      <div>
+        <h1>Nexus Remote</h1>
+        <p id="version">Browser Bridge</p>
+      </div>
+    </header>
+
+    <section class="panel panel--status">
+      <div class="status-row">
+        <span class="status-dot" id="statusDot"></span>
+        <div>
+          <div class="status-title" id="statusTitle">Проверяем bridge...</div>
+          <div class="status-subtitle" id="statusSubtitle">Подключите Nexus Remote PC</div>
+        </div>
+      </div>
+      <div class="meta-grid">
+        <div class="meta-card">
+          <div class="meta-label">Браузер</div>
+          <div class="meta-value" id="browserName">-</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">Транспорт</div>
+          <div class="meta-value" id="transportMode">-</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">Источники</div>
+          <div class="meta-value" id="sessionCount">0</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">Активные сайты</div>
+          <div class="meta-value" id="activeSites">-</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Поддерживаемые сайты</h2>
+      <div class="chips">
+        <span class="chip">YouTube</span>
+        <span class="chip">YouTube Music</span>
+        <span class="chip">VK</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Как это работает</h2>
+      <ol class="steps">
+        <li>Запустите Nexus Remote PC.</li>
+        <li>Откройте YouTube, YouTube Music или VK.</li>
+        <li>Управляйте медиа с телефона через Nexus Remote.</li>
+      </ol>
+    </section>
+
+    <div class="actions">
+      <button id="reloadButton" class="button button--primary" type="button">Переподключить</button>
+      <button id="refreshButton" class="button" type="button">Обновить</button>
+    </div>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

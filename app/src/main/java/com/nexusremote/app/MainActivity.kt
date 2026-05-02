@@ -845,10 +845,18 @@ fun RemoteApp(
     LaunchedEffect(host, port) {
         while (true) {
             if (host.isNotBlank() && port.isNotBlank()) {
-                onRefreshContext(host, port)
                 onRefreshSnapshot(host, port)
             }
-            delay(5000)
+            delay(1000)
+        }
+    }
+
+    LaunchedEffect(host, port, token) {
+        while (true) {
+            if (host.isNotBlank() && port.isNotBlank()) {
+                onRefreshContext(host, port)
+            }
+            delay(3000)
         }
     }
 
@@ -888,8 +896,6 @@ fun RemoteApp(
                 status = status,
                 onConnectionClick = { showConnection = true }
             )
-
-            ContextHint(context = pcContext, tab = tab, onOpen = { tab = it })
 
             if (showOnboarding && !connected) {
                 OnboardingCard(
@@ -1063,28 +1069,6 @@ private fun Header(title: String, connected: Boolean, status: String, onConnecti
 }
 
 @Composable
-private fun ContextHint(context: PcContext, tab: MainTab, onOpen: (MainTab) -> Unit) {
-    val target = when (context.suggestedSection) {
-        "Browser" -> MainTab.Programs
-        "Media" -> MainTab.Player
-        "Apps", "Keys" -> MainTab.Programs
-        else -> null
-    }
-    val process = context.activeProcess.removeSuffix(".exe")
-    if (target == null || target == tab || process.isBlank()) return
-
-    GlowCard {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(Modifier.weight(1f)) {
-                Text("На ПК открыт $process", color = TextMain, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("Предложить: ${target.title}", color = TextMuted)
-            }
-            CapsuleButton("Открыть", filled = true) { onOpen(target) }
-        }
-    }
-}
-
-@Composable
 private fun MonitorScreen(snapshot: PcSnapshot) {
     var cpuHistory by remember { mutableStateOf(seedHistory(snapshot.cpuLoad)) }
     var gpuHistory by remember { mutableStateOf(seedHistory(snapshot.gpuLoad ?: 0)) }
@@ -1157,11 +1141,12 @@ private fun MonitorScreen(snapshot: PcSnapshot) {
 @Composable
 private fun PlayerScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -> Unit) {
     var volume by remember { mutableFloatStateOf(snapshot.systemVolume.toFloat()) }
+    val visibleSources = remember(snapshot.mediaSources) { collapseMediaSources(snapshot.mediaSources) }
     var selectedSourceId by remember { mutableStateOf(snapshot.mediaSourceId) }
     var seekValue by remember { mutableFloatStateOf(snapshot.mediaPositionMs.toFloat()) }
     var isSeeking by remember { mutableStateOf(false) }
-    val selectedSource = snapshot.mediaSources.firstOrNull { it.sourceId == selectedSourceId }
-        ?: snapshot.mediaSources.firstOrNull()
+    val selectedSource = visibleSources.firstOrNull { it.sourceId == selectedSourceId }
+        ?: visibleSources.firstOrNull()
     val mediaSourceId = selectedSource?.sourceId ?: snapshot.mediaSourceId
     val mediaPayload = remember(mediaSourceId) {
         JSONObject().apply {
@@ -1182,6 +1167,8 @@ private fun PlayerScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
     val mediaDurationMs = (selectedSource?.durationMs ?: snapshot.mediaDurationMs).coerceAtLeast(0L)
     val mediaPositionMs = (selectedSource?.positionMs ?: snapshot.mediaPositionMs).coerceIn(0L, mediaDurationMs.takeIf { it > 0 } ?: Long.MAX_VALUE)
     val mediaArtwork = selectedSource?.artworkBase64 ?: snapshot.mediaArtworkBase64
+    val mediaKind = selectedSource?.mediaKind?.ifBlank { "unknown" } ?: "unknown"
+    val isVideo = mediaKind == "video"
     val artworkBitmap = remember(mediaArtwork) {
         decodeBase64Image(mediaArtwork)
     }
@@ -1189,16 +1176,24 @@ private fun PlayerScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
     LaunchedEffect(snapshot.systemVolume) {
         volume = snapshot.systemVolume.toFloat()
     }
-    LaunchedEffect(snapshot.mediaSourceId, snapshot.mediaSources) {
-        if (snapshot.mediaSources.none { it.sourceId == selectedSourceId }) {
-            selectedSourceId = snapshot.mediaSourceId.ifBlank { snapshot.mediaSources.firstOrNull()?.sourceId.orEmpty() }
+    LaunchedEffect(snapshot.mediaSourceId, visibleSources) {
+        if (visibleSources.none { it.sourceId == selectedSourceId }) {
+            selectedSourceId = snapshot.mediaSourceId.ifBlank { visibleSources.firstOrNull()?.sourceId.orEmpty() }
         } else if (selectedSourceId.isBlank()) {
-            selectedSourceId = snapshot.mediaSourceId.ifBlank { snapshot.mediaSources.firstOrNull()?.sourceId.orEmpty() }
+            selectedSourceId = snapshot.mediaSourceId.ifBlank { visibleSources.firstOrNull()?.sourceId.orEmpty() }
         }
     }
     LaunchedEffect(mediaPositionMs, mediaDurationMs, selectedSourceId, isSeeking) {
         if (!isSeeking) {
             seekValue = mediaPositionMs.toFloat()
+        }
+    }
+    LaunchedEffect(mediaIsPlaying, mediaDurationMs, selectedSourceId) {
+        while (mediaIsPlaying && mediaDurationMs > 0) {
+            delay(350)
+            if (!isSeeking) {
+                seekValue = (seekValue + 350f).coerceAtMost(mediaDurationMs.toFloat())
+            }
         }
     }
 
@@ -1219,7 +1214,7 @@ private fun PlayerScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
                     bitmap = artworkBitmap,
                     contentDescription = mediaTitle,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    contentScale = if (isVideo) ContentScale.Crop else ContentScale.Fit
                 )
                 Box(
                     Modifier
@@ -1252,12 +1247,19 @@ private fun PlayerScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            RoundControl(NexusIcon.Rewind, "-5 сек") { onCommand("media_seek_relative", JSONObject(mediaPayload.toString()).put("seconds", -5)) }
-            PlayButton(isPlaying = mediaIsPlaying) { onCommand("media_play_pause", JSONObject(mediaPayload.toString())) }
-            RoundControl(NexusIcon.Forward, "+5 сек") { onCommand("media_seek_relative", JSONObject(mediaPayload.toString()).put("seconds", 5)) }
+            if (isVideo) {
+                RoundControl(NexusIcon.Rewind, "-5 сек") { onCommand("media_seek_relative", JSONObject(mediaPayload.toString()).put("seconds", -5)) }
+                PlayButton(isPlaying = mediaIsPlaying) { onCommand("media_play_pause", JSONObject(mediaPayload.toString())) }
+                RoundControl(NexusIcon.Forward, "+5 сек") { onCommand("media_seek_relative", JSONObject(mediaPayload.toString()).put("seconds", 5)) }
+            } else {
+                RoundControl(NexusIcon.SkipPrevious, "Пред.") { onCommand("media_prev", JSONObject(mediaPayload.toString())) }
+                PlayButton(isPlaying = mediaIsPlaying) { onCommand("media_play_pause", JSONObject(mediaPayload.toString())) }
+                RoundControl(NexusIcon.SkipNext, "След.") { onCommand("media_next", JSONObject(mediaPayload.toString())) }
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            SquareControl(NexusIcon.VolumeOff) { onCommand("volume_mute", JSONObject()) }
+            SquareControl(NexusIcon.VolumeOff) { onCommand("media_mute", JSONObject(mediaPayload.toString())) }
+            SquareControl(NexusIcon.Rewind) { onCommand("media_volume_relative", JSONObject(mediaPayload.toString()).put("delta", -5)) }
             Slider(
                 value = volume,
                 onValueChange = { volume = it },
@@ -1266,18 +1268,28 @@ private fun PlayerScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
                 colors = sliderColors(),
                 modifier = Modifier.weight(1f)
             )
-            SquareControl(NexusIcon.Volume) { onCommand("volume_up", JSONObject().put("steps", 2)) }
+            SquareControl(NexusIcon.Forward) { onCommand("media_volume_relative", JSONObject(mediaPayload.toString()).put("delta", 5)) }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ControlTile(NexusIcon.SkipPrevious, "Назад", Modifier.weight(1f)) { onCommand("media_prev", JSONObject(mediaPayload.toString())) }
-            ControlTile(NexusIcon.SkipNext, "Вперёд", Modifier.weight(1f)) { onCommand("media_next", JSONObject(mediaPayload.toString())) }
-            ControlTile(NexusIcon.Fullscreen, "Полный экран", Modifier.weight(1f)) { onCommand("media_fullscreen", JSONObject(mediaPayload.toString())) }
-            ControlTile(NexusIcon.Subtitles, "Субтитры", Modifier.weight(1f)) { onCommand("media_subtitles", JSONObject(mediaPayload.toString())) }
+        if (isVideo) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ControlTile(NexusIcon.SkipPrevious, "Предыдущее", Modifier.weight(1f)) { onCommand("media_prev", JSONObject(mediaPayload.toString())) }
+                ControlTile(NexusIcon.SkipNext, "Следующее", Modifier.weight(1f)) { onCommand("media_next", JSONObject(mediaPayload.toString())) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ControlTile(NexusIcon.Fullscreen, "Полный экран", Modifier.weight(1f)) { onCommand("media_fullscreen", JSONObject(mediaPayload.toString())) }
+                ControlTile(NexusIcon.Subtitles, "Субтитры", Modifier.weight(1f)) { onCommand("media_subtitles", JSONObject(mediaPayload.toString())) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CapsuleButton("Окно -", filled = false, compact = true) { onCommand("media_zoom_out", JSONObject(mediaPayload.toString())) }
+                CapsuleButton("Окно +", filled = true, compact = true) { onCommand("media_zoom_in", JSONObject(mediaPayload.toString())) }
+            }
+        } else {
+            
         }
-        if (snapshot.mediaSources.size > 1) {
+        if (visibleSources.size > 1) {
             Text("Источники", color = TextMain, fontWeight = FontWeight.Bold)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                snapshot.mediaSources.forEach { source ->
+                visibleSources.forEach { source ->
                     MediaSourceRow(
                         source = source,
                         selected = source.sourceId == mediaSourceId,
@@ -1370,6 +1382,9 @@ private fun SystemScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
     var brightness by remember { mutableFloatStateOf((snapshot.screenBrightness ?: 45).toFloat()) }
     var confirmAction by remember { mutableStateOf<Pair<String, String>?>(null) }
     var showShutdownTimer by remember { mutableStateOf(false) }
+    var timerHours by remember { mutableStateOf("0") }
+    var timerMinutes by remember { mutableStateOf("30") }
+    var videoCount by remember { mutableStateOf("1") }
 
     LaunchedEffect(snapshot.systemVolume) {
         volume = snapshot.systemVolume.toFloat()
@@ -1460,16 +1475,85 @@ private fun SystemScreen(snapshot: PcSnapshot, onCommand: (String, JSONObject) -
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Выберите, через сколько выключить ПК.", color = TextMuted)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                        CapsuleButton("15 мин", filled = false, compact = true) {
-                            onCommand("power_shutdown_timer", JSONObject().put("seconds", 15 * 60))
-                            showShutdownTimer = false
-                        }
                         CapsuleButton("30 мин", filled = true, compact = true) {
                             onCommand("power_shutdown_timer", JSONObject().put("seconds", 30 * 60))
                             showShutdownTimer = false
                         }
-                        CapsuleButton("60 мин", filled = false, compact = true) {
+                        CapsuleButton("1 час", filled = false, compact = true) {
                             onCommand("power_shutdown_timer", JSONObject().put("seconds", 60 * 60))
+                            showShutdownTimer = false
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        CapsuleButton("1ч 30м", filled = false, compact = true) {
+                            onCommand("power_shutdown_timer", JSONObject().put("seconds", 90 * 60))
+                            showShutdownTimer = false
+                        }
+                        CapsuleButton("2 часа", filled = false, compact = true) {
+                            onCommand("power_shutdown_timer", JSONObject().put("seconds", 120 * 60))
+                            showShutdownTimer = false
+                        }
+                    }
+                    Text("Или введите вручную:", color = TextMuted)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = timerHours,
+                            onValueChange = { timerHours = it.filter(Char::isDigit).take(2) },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("Часы") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Cyan,
+                                unfocusedBorderColor = CardStroke,
+                                focusedTextColor = TextMain,
+                                unfocusedTextColor = TextMain,
+                                focusedLabelColor = TextMuted,
+                                unfocusedLabelColor = TextMuted
+                            )
+                        )
+                        OutlinedTextField(
+                            value = timerMinutes,
+                            onValueChange = { timerMinutes = it.filter(Char::isDigit).take(2) },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("Минуты") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Cyan,
+                                unfocusedBorderColor = CardStroke,
+                                focusedTextColor = TextMain,
+                                unfocusedTextColor = TextMain,
+                                focusedLabelColor = TextMuted,
+                                unfocusedLabelColor = TextMuted
+                            )
+                        )
+                    }
+                    CapsuleButton("Запланировать вручную", filled = true) {
+                        val totalSeconds = ((timerHours.toIntOrNull() ?: 0) * 3600) + ((timerMinutes.toIntOrNull() ?: 0) * 60)
+                        onCommand("power_shutdown_timer", JSONObject().put("seconds", totalSeconds.coerceAtLeast(60)))
+                        showShutdownTimer = false
+                    }
+                    Text("Или выключить после заданного количества видео:", color = TextMuted)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = videoCount,
+                            onValueChange = { videoCount = it.filter(Char::isDigit).take(2) },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("Видео") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Cyan,
+                                unfocusedBorderColor = CardStroke,
+                                focusedTextColor = TextMain,
+                                unfocusedTextColor = TextMain,
+                                focusedLabelColor = TextMuted,
+                                unfocusedLabelColor = TextMuted
+                            )
+                        )
+                        CapsuleButton("После видео", filled = false, compact = true) {
+                            onCommand("power_shutdown_after_media_count", JSONObject().put("count", (videoCount.toIntOrNull() ?: 1).coerceAtLeast(1)))
                             showShutdownTimer = false
                         }
                     }
@@ -2236,6 +2320,36 @@ private fun decodeBase64Image(base64: String) = runCatching {
     val bytes = Base64.decode(base64, Base64.DEFAULT)
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
 }.getOrNull()
+
+private fun collapseMediaSources(sources: List<MediaSourceUi>): List<MediaSourceUi> {
+    val byKey = linkedMapOf<String, MediaSourceUi>()
+    sources.forEach { source ->
+        val key = normalizeMediaKey(source)
+        val existing = byKey[key]
+        if (existing == null) {
+            byKey[key] = source
+        } else {
+            byKey[key] = preferMediaSource(existing, source)
+        }
+    }
+    return byKey.values.toList()
+}
+
+private fun normalizeMediaKey(source: MediaSourceUi): String {
+    val title = source.displayTitle.lowercase().replace(Regex("[\\s\\-–—|:]+"), " ").trim()
+    val artist = source.artist.lowercase().replace(Regex("[\\s\\-–—|:]+"), " ").trim()
+    return "$title|$artist"
+}
+
+private fun preferMediaSource(left: MediaSourceUi, right: MediaSourceUi): MediaSourceUi {
+    if (left.sourceType == "browser" && right.sourceType != "browser") return left
+    if (right.sourceType == "browser" && left.sourceType != "browser") return right
+    if (left.isPlaying && !right.isPlaying) return left
+    if (right.isPlaying && !left.isPlaying) return right
+    if (left.canSeek && !right.canSeek) return left
+    if (right.canSeek && !left.canSeek) return right
+    return if (left.durationMs >= right.durationMs) left else right
+}
 
 private fun fallbackProgress(value: Int, fallback: Float): Float {
     return if (value > 0) value / 100f else fallback

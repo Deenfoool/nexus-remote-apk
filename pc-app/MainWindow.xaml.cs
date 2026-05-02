@@ -154,12 +154,8 @@ public partial class MainWindow : Window
 
     private bool ConfirmDangerousCommand(string deviceName, string message)
     {
-        var result = System.Windows.MessageBox.Show(
-            $"{message}\n\nЗапросило устройство: {deviceName}",
-            "Подтверждение команды",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-        return result == MessageBoxResult.Yes;
+        AppLogger.Info($"Опасная команда выполнена без локального подтверждения: {message} ({deviceName})");
+        return true;
     }
 
     private void ResetDevices_Click(object sender, RoutedEventArgs e)

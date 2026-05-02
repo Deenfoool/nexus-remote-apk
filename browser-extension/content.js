@@ -8,6 +8,7 @@
     const ua = navigator.userAgent;
     if (ua.includes("YaBrowser")) return "yandex";
     if (ua.includes("Edg/")) return "edge";
+    if (ua.includes("Firefox/")) return "firefox";
     if (ua.includes("Chrome/")) return "chrome";
     return "chromium";
   }
@@ -243,6 +244,10 @@
           mediaElement.pause?.();
         }
         return { ok: true };
+      case "media_stop":
+        mediaElement.pause?.();
+        mediaElement.currentTime = 0;
+        return { ok: true };
       case "media_seek_relative": {
         const seconds = Number(command.payload?.seconds || 0);
         if (!Number.isFinite(seconds)) return { ok: false };
@@ -265,6 +270,16 @@
           return { ok: true };
         }
         return { ok: false };
+      case "media_mute":
+        mediaElement.muted = !mediaElement.muted;
+        return { ok: true };
+      case "media_volume_relative": {
+        const delta = Number(command.payload?.delta || 0);
+        if (!Number.isFinite(delta)) return { ok: false };
+        mediaElement.volume = Math.max(0, Math.min(1, mediaElement.volume + delta / 100));
+        if (mediaElement.volume > 0) mediaElement.muted = false;
+        return { ok: true };
+      }
       case "media_next":
         if (location.hostname.includes("youtube")) {
           return { ok: clickFirst([".ytp-next-button"]) };
@@ -339,7 +354,7 @@
     attributes: true
   });
 
-  setInterval(pushState, 1000);
+  setInterval(pushState, 500);
   window.addEventListener("focus", pushState);
   document.addEventListener("visibilitychange", pushState);
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

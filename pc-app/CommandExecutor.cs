@@ -79,9 +79,13 @@ public static class CommandExecutor
                     Start("shutdown", "/s /t 0");
                     break;
                 case "power_shutdown_timer":
-                    Start("shutdown", $"/s /t {Math.Clamp(GetInt(payload, "seconds", 1800), 60, 86400)}");
+                    ShutdownScheduler.ScheduleTimer(Math.Clamp(GetInt(payload, "seconds", 1800), 60, 86400));
+                    break;
+                case "power_shutdown_after_media_count":
+                    ShutdownScheduler.ScheduleAfterVideoTransitions(Math.Clamp(GetInt(payload, "count", 1), 1, 50));
                     break;
                 case "power_shutdown_cancel":
+                    ShutdownScheduler.Cancel();
                     Start("shutdown", "/a");
                     break;
                 case "power_restart":
@@ -152,6 +156,8 @@ public static class CommandExecutor
             "ESC" or "ESCAPE" => 0x1B,
             "TAB" => 0x09,
             "SPACE" => 0x20,
+            "PLUS" => 0xBB,
+            "MINUS" => 0xBD,
             "LEFT" => 0x25,
             "UP" => 0x26,
             "RIGHT" => 0x27,
@@ -186,11 +192,20 @@ public static class CommandExecutor
             case "media_play_pause":
                 PressKey(0xB3);
                 break;
+            case "media_stop":
+                PressKey(0xB2);
+                break;
             case "media_prev":
                 PressKey(0xB1);
                 break;
             case "media_next":
                 PressKey(0xB0);
+                break;
+            case "media_mute":
+                VolumeController.ToggleMute();
+                break;
+            case "media_volume_relative":
+                VolumeController.ChangeVolume(GetInt(payload, "delta", 0));
                 break;
             case "media_seek_relative":
                 var deltaSeconds = GetInt(payload, "seconds", 0);
@@ -209,8 +224,11 @@ public static class CommandExecutor
             case "media_subtitles":
                 PressShortcut(["C"]);
                 break;
-            case "media_stop":
-                PressKey(0xB2);
+            case "media_zoom_in":
+                PressShortcut(["CTRL", "PLUS"]);
+                break;
+            case "media_zoom_out":
+                PressShortcut(["CTRL", "MINUS"]);
                 break;
         }
     }

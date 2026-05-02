@@ -14,6 +14,8 @@ public sealed class BrowserBridgeServer : IDisposable
     private readonly BrowserSessionRegistry _registry;
     private readonly CancellationTokenSource _cts = new();
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new(StringComparer.Ordinal);
+    private readonly ConcurrentQueue<BridgeCommandEnvelope> _commandQueue = new();
+    private long _nextCommandId;
     private HttpListener? _listener;
     private Task? _loopTask;
 
@@ -88,6 +90,42 @@ public sealed class BrowserBridgeServer : IDisposable
             {
                 context.Response.StatusCode = 200;
                 await WriteJsonAsync(context.Response, new { ok = true, service = "Nexus Remote Browser Bridge", port = Port });
+                return;
+            }
+
+            if (context.Request.Url?.AbsolutePath == "/browser-bridge/push" && context.Request.HttpMethod == "POST")
+            {
+                using var reader = new StreamReader(context.Request.InputStream, context.Request.ContentEncoding ?? Encoding.UTF8);
+                var payload = await reader.ReadToEndAsync();
+                if (!string.IsNullOrWhiteSpace(payload))
+                {
+                    await HandleMessageAsync(payload, _cts.Token);
+                }
+                context.Response.StatusCode = 200;
+                await WriteJsonAsync(context.Response, new { ok = true });
+                return;
+            }
+
+            if (context.Request.Url?.AbsolutePath == "/browser-bridge/commands" && context.Request.HttpMethod == "GET")
+            {
+                var afterId = long.TryParse(context.Request.QueryString["afterId"], out var parsedAfterId)
+                    ? parsedAfterId
+                    : 0L;
+                context.Response.StatusCode = 200;
+                await WriteJsonAsync(context.Response, new
+                {
+                    ok = true,
+                    commands = _commandQueue
+                        .Where(item => item.Id > afterId && item.CreatedAtUtc >= DateTime.UtcNow.AddMinutes(-2))
+                        .Select(item => new
+                        {
+                            id = item.Id,
+                            type = item.Type,
+                            sourceId = item.SourceId,
+                            payload = item.Payload
+                        })
+                        .ToArray()
+                });
                 return;
             }
 
@@ -174,9 +212,13 @@ public sealed class BrowserBridgeServer : IDisposable
             .Where(socket => socket.State == WebSocketState.Open)
             .ToArray();
 
+        var commandId = Interlocked.Increment(ref _nextCommandId);
+        _commandQueue.Enqueue(new BridgeCommandEnvelope(commandId, commandType, sourceId, payload, DateTime.UtcNow));
+        TrimCommandQueue();
+
         if (sockets.Length == 0)
         {
-            return false;
+            return true;
         }
 
         var message = JsonSerializer.Serialize(new
@@ -210,6 +252,14 @@ public sealed class BrowserBridgeServer : IDisposable
     }
 
     public bool HasConnectedClients => _clients.Values.Any(socket => socket.State == WebSocketState.Open);
+
+    private void TrimCommandQueue()
+    {
+        while (_commandQueue.TryPeek(out var item) && item.CreatedAtUtc < DateTime.UtcNow.AddMinutes(-2))
+        {
+            _commandQueue.TryDequeue(out _);
+        }
+    }
 
     private async Task HandleMessageAsync(string payload, CancellationToken cancellationToken)
     {
@@ -286,3 +336,11 @@ public sealed class BrowserBridgeServer : IDisposable
         _cts.Dispose();
     }
 }
+
+public sealed record BridgeCommandEnvelope(
+    long Id,
+    string Type,
+    string? SourceId,
+    object Payload,
+    DateTime CreatedAtUtc
+);

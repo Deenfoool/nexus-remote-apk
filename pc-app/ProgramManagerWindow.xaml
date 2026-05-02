@@ -26,28 +26,55 @@
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1.15*"/>
+            <ColumnDefinition Width="14"/>
+            <ColumnDefinition Width="0.95*"/>
+        </Grid.ColumnDefinitions>
 
-        <StackPanel>
+        <StackPanel Grid.ColumnSpan="3">
             <TextBlock Text="Программы" FontSize="30" FontWeight="Bold"/>
-            <TextBlock Text="Выбери .exe/.lnk файлы, которые будут видны во вкладке “Программы” на телефоне."
+            <TextBlock Text="Выбери .exe/.lnk файлы, которые будут видны во вкладке “Программы” на телефоне. При первом открытии приложение само предлагает ярлыки из меню Пуск."
                        Foreground="{StaticResource TextMuted}" FontSize="15" Margin="0,6,0,18"/>
         </StackPanel>
 
-        <Border Grid.Row="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelStroke}"
+        <Border Grid.Row="1" Grid.Column="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelStroke}"
                 BorderThickness="1" CornerRadius="14" Padding="12">
-            <ListView x:Name="ProgramsList" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextMain}">
-                <ListView.View>
-                    <GridView>
-                        <GridViewColumn Header="Название" DisplayMemberBinding="{Binding Name}" Width="210"/>
-                        <GridViewColumn Header="Путь" DisplayMemberBinding="{Binding Path}" Width="460"/>
-                    </GridView>
-                </ListView.View>
-            </ListView>
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Выбрано для телефона" FontWeight="Bold" Margin="0,0,0,10"/>
+                <ListView x:Name="ProgramsList" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextMain}" SelectionMode="Extended">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="Название" DisplayMemberBinding="{Binding Name}" Width="170"/>
+                            <GridViewColumn Header="Путь" DisplayMemberBinding="{Binding Path}" Width="280"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+            </DockPanel>
         </Border>
 
-        <DockPanel Grid.Row="2" Margin="0,16,0,0">
+        <Border Grid.Row="1" Grid.Column="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelStroke}"
+                BorderThickness="1" CornerRadius="14" Padding="12">
+            <DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                    <TextBlock Text="Найдено автоматически" FontWeight="Bold"/>
+                    <Button Content="Обновить" HorizontalAlignment="Right" Click="Rescan_Click"/>
+                </DockPanel>
+                <ListView x:Name="SuggestedList" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextMain}" SelectionMode="Extended">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="Название" DisplayMemberBinding="{Binding Name}" Width="150"/>
+                            <GridViewColumn Header="Путь" DisplayMemberBinding="{Binding Path}" Width="210"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+            </DockPanel>
+        </Border>
+
+        <DockPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,16,0,0">
             <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
                 <Button Content="Добавить" Margin="0,0,10,0" Click="Add_Click"/>
+                <Button Content="Добавить найденные" Margin="0,0,10,0" Click="AddSuggested_Click"/>
                 <Button Content="Удалить" Margin="0,0,10,0" Click="Remove_Click"/>
                 <Button Content="Запустить" Click="Run_Click"/>
             </StackPanel>

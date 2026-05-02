@@ -9,13 +9,17 @@ public partial class ProgramManagerWindow : Window
 {
     private readonly CompanionStore _store;
     private readonly ObservableCollection<ProgramEntry> _programs;
+    private readonly ObservableCollection<ProgramEntry> _suggestions;
 
     public ProgramManagerWindow(CompanionStore store)
     {
         InitializeComponent();
         _store = store;
         _programs = new ObservableCollection<ProgramEntry>(_store.LoadPrograms());
+        _suggestions = new ObservableCollection<ProgramEntry>();
         ProgramsList.ItemsSource = _programs;
+        SuggestedList.ItemsSource = _suggestions;
+        Loaded += (_, _) => ScanSuggestions();
     }
 
     private void Add_Click(object sender, RoutedEventArgs e)
@@ -72,5 +76,35 @@ public partial class ProgramManagerWindow : Window
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 
-    private void Save() => _store.SavePrograms(_programs);
+    private void AddSuggested_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = SuggestedList.SelectedItems.Cast<ProgramEntry>().ToArray();
+        foreach (var entry in selected)
+        {
+            if (_programs.Any(program => string.Equals(program.Path, entry.Path, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+            _programs.Add(entry);
+            _suggestions.Remove(entry);
+        }
+        Save();
+    }
+
+    private void Rescan_Click(object sender, RoutedEventArgs e) => ScanSuggestions();
+
+    private void Save()
+    {
+        _store.SavePrograms(_programs);
+        ScanSuggestions();
+    }
+
+    private void ScanSuggestions()
+    {
+        _suggestions.Clear();
+        foreach (var entry in ProgramDiscovery.DiscoverSuggestedPrograms(_programs))
+        {
+            _suggestions.Add(entry);
+        }
+    }
 }

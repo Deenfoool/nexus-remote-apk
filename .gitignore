@@ -19,3 +19,4 @@ keystore.properties
 *.keystore
 /app/release/
 /release/
+/browser-extension/dist/

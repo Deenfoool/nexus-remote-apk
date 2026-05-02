@@ -3,7 +3,7 @@
   "name": "Nexus Remote Browser Bridge",
   "short_name": "Nexus Remote",
   "version": "1.0.0",
-  "description": "Bridge active media tabs from Chromium browsers to Nexus Remote PC.",
+  "description": "Connect browser media tabs to Nexus Remote PC.",
   "browser_specific_settings": {
     "gecko": {
       "id": "browser-bridge@nexusremote.app",
@@ -16,7 +16,7 @@
     }
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' ws://127.0.0.1:8767 ws://localhost:8767 http://127.0.0.1:8767 http://localhost:8767"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:8767 http://localhost:8767"
   },
   "permissions": [
     "tabs",
@@ -32,8 +32,7 @@
   "background": {
     "scripts": [
       "background.js"
-    ],
-    "service_worker": "background.js"
+    ]
   },
   "content_scripts": [
     {
@@ -57,6 +56,7 @@
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
       "48": "icons/icon-48.png",
+      "96": "icons/icon-96.png",
       "128": "icons/icon-128.png"
     }
   },

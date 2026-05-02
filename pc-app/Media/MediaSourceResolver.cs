@@ -4,7 +4,7 @@ namespace NexusRemotePC.Media;
 
 public sealed class MediaSourceResolver
 {
-    private static readonly string[] BrowserAppIds = ["yandex", "chrome", "edge", "chromium"];
+    private static readonly string[] BrowserAppIds = ["yandex", "chrome", "edge", "chromium", "firefox"];
 
     public ResolvedMediaState Resolve(IEnumerable<MediaSourceSnapshot> rawSources)
     {

@@ -16,11 +16,16 @@ public sealed class MediaCommandRouter
         return type is "media_play_pause"
             or "media_prev"
             or "media_next"
+            or "media_stop"
             or "media_seek_relative"
             or "media_seek_to"
+            or "media_mute"
+            or "media_volume_relative"
             or "media_fullscreen"
+            or "media_zoom_in"
+            or "media_zoom_out"
             or "media_subtitles"
-            or "media_stop";
+            ;
     }
 
     public async Task<bool> ExecuteAsync(string type, JsonElement payload, CancellationToken cancellationToken)
@@ -51,6 +56,7 @@ public sealed class MediaCommandRouter
         {
             seconds = GetInt(payload, "seconds", 0),
             positionMs = GetLong(payload, "positionMs"),
+            delta = GetInt(payload, "delta", 0),
             enabled = GetBool(payload, "enabled")
         };
     }

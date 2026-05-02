@@ -260,7 +260,8 @@ public static class ProgramRuntime
 {
     public static object ToStatus(ProgramEntry entry)
     {
-        var processName = System.IO.Path.GetFileNameWithoutExtension(entry.Path);
+        var resolvedPath = ShortcutUtil.ResolveLaunchPath(entry.Path);
+        var processName = System.IO.Path.GetFileNameWithoutExtension(resolvedPath);
         var running = false;
         try
         {
@@ -276,7 +277,7 @@ public static class ProgramRuntime
             name = string.IsNullOrWhiteSpace(entry.Name) ? processName : entry.Name,
             command = entry.Path,
             running,
-            icon = IconExtractor.TryExtractBase64Png(entry.Path)
+            icon = IconExtractor.TryExtractBase64Png(resolvedPath)
         };
     }
 }
